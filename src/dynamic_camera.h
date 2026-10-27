@@ -47,6 +47,53 @@ struct DynamicCamera {
         // lookahead) appropriately. Next,
         // set the camera center by offsetting the cameraUnadjustedCenter, combining lookAhead.
         // Finally update cameraUnadjustedCenter, but without lookahead.
+
+        // Get the player's normalized window position, measured relative to the camera center WITHOUT lookahead
+        // trackedPosWorld - cameraUnadjustedCenter is the distance between the camera and the palyer pos in world unit
+        // We convert that into window percentage
+        // Then + 0.5 since center is 1/2 of the window
+        float playerPercentX = 0.5f + camera.worldToWindowPercentDist(trackedPosWorld - cameraUnadjustedCenter).x;
+        
+        // Calculate the lookahead distance in world units
+        float lookAheadWorld = camera.windowPercentToWorldDist({lookAhead, 0.f}).x;
+        // Look ahead in the direction the player is moving => same sign as the velocity
+        float targetLookahead = 0.f;
+        if (trackedVelocityWorld.x > 0.f) {
+            targetLookahead = lookAheadWorld;
+        }
+        else if (trackedVelocityWorld.x < 0.f) {
+            targetLookahead = -lookAheadWorld;
+        }
+        // Smooth the lookahead offset using EMA
+        // targetLookahead - lookaheadState is how much we need to move, we update the current state by the
+        // difference * alpha
+        lookaheadState += alpha * (targetLookahead - lookaheadState);
+        // Determine the camera displacement, ignoring lookahead
+        float deltaPercent = 0.f;
+        // Outside the hard zone: immediately correct to its boundary
+        if (playerPercentX < softZoneX.min) {
+            deltaPercent = playerPercentX - softZoneX.min;
+        }
+        else if (playerPercentX > softZoneX.max) {
+            deltaPercent = playerPercentX - softZoneX.max;
+        }
+        // Outside the dead zone but inside the hard zone:
+        // smoothly move toward the nearest dead-zone boundary
+        else if (playerPercentX < deadZoneX.min) {
+            deltaPercent = alpha * (playerPercentX - deadZoneX.min);
+        }
+        else if (playerPercentX > deadZoneX.max) {
+            deltaPercent = alpha * (playerPercentX - deadZoneX.max);
+        }
+        // Convert the required screen-percentage displacement to world units
+        float deltaWorld = camera.windowPercentToWorldDist({deltaPercent, 0.f}).x;
+
+        // Update the camera position without lookahead
+        cameraUnadjustedCenter.x += deltaWorld;
+        // Apply the unadjusted center plus the smoothed lookahead
+        // only update in the x direction
+        camera.setCameraCenter({ cameraUnadjustedCenter.x + lookaheadState, cameraUnadjustedCenter.y});
+
     }
 
     float alpha;  // alpha to use for damping of camera position, *as well as* for smoothing of
